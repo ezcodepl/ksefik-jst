@@ -440,4 +440,4 @@ Projekt prywatny / wewnętrzny.
 
 Projekt: **Ksefik**
 
-Autor: `uzupełnij autora lub nazwę organizacji`
+Autor: `Ernest Zając`
