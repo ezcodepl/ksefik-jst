@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KSeF Podgląd i Opis Merytoryczny EZD PUW</title>
+    
+    <!-- Tailwind CSS do nowoczesnego wyglądu -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Biblioteka docx.js do generowania plików Word (Zmieniono na stabilny serwer jsdelivr) -->
+    <script src="docx.js"></script>
+    
+    <!-- Ikony -->
+    <script src="https://cdn.jsdelivr.net/npm/@phosphor-icons/web"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; height: 100vh; overflow: hidden; }
+        
+        /* Stylizacja dla podglądu faktury */
+        .invoice-preview { font-family: 'Arial', sans-serif; background: #f5f5f5; color: #111; font-size: 11px; line-height: 1.4; }
+        .invoice-preview .page { max-width: 900px; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-radius: 8px; }
+        .invoice-preview .header-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+        .invoice-preview .ksef-logo { font-size: 26px; font-weight: normal; color: #000; }
+        .invoice-preview .ksef-logo span { color: #e30613; font-weight: bold; }
+        .invoice-preview .top-info { text-align: right; }
+        .invoice-preview .inv-number { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
+        .invoice-preview .ksef-id { font-size: 10px; color: #333; }
+        .invoice-preview hr { border: 0; border-top: 1px solid #ddd; margin: 20px 0; }
+        .invoice-preview .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 5px; }
+        .invoice-preview .section-header { font-weight: bold; font-size: 14px; margin-bottom: 10px; margin-top: 5px; color: #000; }
+        .invoice-preview table { width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #ccc; }
+        .invoice-preview th { background: #fcfcfc; text-align: left; padding: 8px; border: 1px solid #ccc; font-size: 10px; font-weight: bold; }
+        .invoice-preview td { padding: 8px; border: 1px solid #ccc; vertical-align: top; }
+        .invoice-preview .r { text-align: right; }
+        .invoice-preview .c { text-align: center; }
+        .invoice-preview .total-box { font-weight: bold; font-size: 15px; text-align: right; margin: 20px 0; }
+        
+        /* Niestandardowy scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="flex h-screen">
+
+    <!-- Sidebar -->
+    <aside class="w-80 bg-slate-900 border-r border-slate-800 flex flex-col shadow-xl z-10 shrink-0">
+        <div class="p-8 flex items-center justify-center border-b border-slate-800">
+            <i class="ph ph-receipt text-emerald-500 text-3xl mr-3"></i>
+            <h1 class="text-2xl font-bold tracking-tight text-white">KSeFik <span class="text-emerald-500">SPK</span></h1>
+        </div>
+
+        <div class="p-6 flex-1 flex flex-col gap-4">
+            <!-- Wczytaj XML -->
+            <label class="cursor-pointer flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3.5 px-4 rounded-lg transition-colors w-full shadow-lg shadow-blue-500/20">
+                <i class="ph ph-file-xml text-xl"></i>
+                <span>Wczytaj Fakturę XML</span>
+                <input type="file" id="fileInput" accept=".xml" class="hidden">
+            </label>
+
+            <!-- Generuj Word -->
+            <button id="btnExport" disabled class="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-medium py-3.5 px-4 rounded-lg transition-colors w-full shadow-lg shadow-emerald-500/20">
+                <i class="ph ph-file-doc text-xl"></i>
+                <span>Generuj Opis Faktury</span>
+            </button>
+            
+            <div class="mt-4 p-4 rounded-lg bg-slate-800/50 border border-slate-700/50 text-sm">
+                <h3 class="text-slate-400 font-semibold mb-2 text-xs uppercase tracking-wider">Szczegóły pliku</h3>
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Status:</span>
+                        <span id="statusLabel" class="text-slate-300 font-medium">Oczekiwanie...</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">Nr Faktury:</span>
+                        <span id="invNumberLabel" class="text-slate-300 font-medium text-right max-w-[150px] truncate">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 text-xs text-center text-slate-600 border-t border-slate-800">
+            System Samorządowy v1.0.01.04.2026<br>EZD PUW / EZD RP
+        </div>
+    </aside>
+
+    <!-- Główne okno / Podgląd -->
+    <main class="flex-1 bg-slate-950 overflow-y-auto relative" id="mainContainer">
+        
+        <!-- Ekran powitalny -->
+        <div id="welcomeScreen" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+            <div class="w-32 h-32 mb-6 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800 shadow-2xl">
+                <i class="ph ph-magnifying-glass text-6xl text-slate-600"></i>
+            </div>
+            <h2 class="text-2xl font-semibold text-white mb-2">System Podglądu Faktur KSeF</h2>
+            <p class="text-slate-500 max-w-md text-center">Wczytaj plik XML korzystając z menu po lewej stronie, aby zobaczyć profesjonalny podgląd dokumentu oraz wygenerować opis.</p>
+        </div>
+
+        <!-- Podgląd faktury -->
+        <div id="previewContainer" class="hidden p-8 invoice-preview min-h-full">
+            <!-- Tutaj wstrzykiwany jest HTML podglądu -->
+        </div>
+
+    </main>
+
+    <!-- Powiadomienie (Toast) -->
+    <div id="toast" class="fixed bottom-6 right-6 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-800 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700 z-50">
+        <i class="ph ph-check-circle text-emerald-500 text-2xl"></i>
+        <span id="toastMsg" class="font-medium">Akcja zakończona pomyślnie.</span>
+    </div>
+
+    <script>
+        // Główny obiekt przechowujący dane faktury
+        const appState = {
+            invoiceData: null,
+            invoiceItems: [],
+            vatSummary: [],
+            podmioty3: [],
+            filenameKsefId: ""
+        };
+
+        // UI Elements
+        const fileInput = document.getElementById('fileInput');
+        const btnExport = document.getElementById('btnExport');
+        const statusLabel = document.getElementById('statusLabel');
+        const invNumberLabel = document.getElementById('invNumberLabel');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const previewContainer = document.getElementById('previewContainer');
+
+        // Funkcje pomocnicze
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            const icon = toast.querySelector('i');
+            
+            toastMsg.textContent = message;
+            
+            if (type === 'error') {
+                icon.className = 'ph ph-warning-circle text-rose-500 text-2xl';
+                toast.classList.replace('border-slate-700', 'border-rose-900');
+            } else {
+                icon.className = 'ph ph-check-circle text-emerald-500 text-2xl';
+                toast.classList.replace('border-rose-900', 'border-slate-700');
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function extractKsefFromFilename(filename) {
+            const match = filename.match(/(\d{10}-\d{8}-[A-Z0-9]{12,16}-\d{2})/);
+            if (match) return match[1];
+            const matchAlt = filename.match(/(\d{10}-\d{8}-[A-Z0-9-]+)/);
+            return matchAlt ? matchAlt[1] : "Brak numeru KSeF";
+        }
+
+        // Pomocnicza funkcja do ignorowania namespace przy wyszukiwaniu tagów
+        function getNodes(parent, tagNames) {
+            if (!parent) return [];
+            let results = [];
+            for (let tag of tagNames) {
+                // Szuka elementów z uwzględnieniem namespace w różnych przeglądarkach
+                let nodes = parent.getElementsByTagNameNS("*", tag);
+                if (nodes.length === 0) nodes = parent.getElementsByTagName(tag);
+                if (nodes.length > 0) return Array.from(nodes);
+            }
+            return results;
+        }
+
+        function getVal(parent, tagNames) {
+            const nodes = getNodes(parent, tagNames);
+            return nodes.length > 0 && nodes[0].textContent ? nodes[0].textContent.trim() : "";
+        }
+
+        // Parsowanie XML
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            appState.filenameKsefId = extractKsefFromFilename(file.name);
+            statusLabel.textContent = "Analizowanie...";
+            statusLabel.className = "text-yellow-400 font-medium text-right";
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(evt.target.result, "text/xml");
+                    
+                    if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                        throw new Error("Błąd podczas parsowania składni XML.");
+                    }
+
+                    const root = xmlDoc.documentElement;
+                    const faNode = getNodes(root, ["Fa"])[0];
+                    const p1Node = getNodes(root, ["Podmiot1"])[0];
+                    const p2Node = getNodes(root, ["Podmiot2"])[0];
+                    const platnoscNode = getNodes(root, ["Platnosc"])[0];
+                    const stopkaNode = getNodes(root, ["Stopka"])[0];
+
+                    appState.invoiceData = {
+                        numer: getVal(faNode, ["P_2"]),
+                        data_wyst: getVal(faNode, ["P_1"]),
+                        data_sprz: getVal(faNode, ["P_6"]),
+                        okres_do: getVal(getNodes(faNode, ["OkresFa"])[0], ["P_6_Do"]),
+                        brutto: getVal(faNode, ["P_15"]),
+                        waluta: getVal(faNode, ["KodWaluty"]) || "PLN",
+                        
+                        s_nazwa: getVal(getNodes(p1Node, ["DaneIdentyfikacyjne"])[0], ["Nazwa"]),
+                        s_nip: getVal(getNodes(p1Node, ["DaneIdentyfikacyjne"])[0], ["NIP"]),
+                        s_prefix: getVal(getNodes(p1Node, ["DaneIdentyfikacyjne"])[0], ["KodKrajuWydaniaNIP"]) || "PL",
+                        s_adres: getVal(getNodes(p1Node, ["Adres"])[0], ["AdresL1"]),
+                        s_email: getVal(getNodes(p1Node, ["DaneKontaktowe"])[0], ["Email"]),
+                        s_tel: getVal(getNodes(p1Node, ["DaneKontaktowe"])[0], ["Telefon"]),
+                        
+                        n_nazwa: getVal(getNodes(p2Node, ["DaneIdentyfikacyjne"])[0], ["Nazwa"]),
+                        n_nip: getVal(getNodes(p2Node, ["DaneIdentyfikacyjne"])[0], ["NIP"]),
+                        n_adres: getVal(getNodes(p2Node, ["Adres"])[0], ["AdresL1"]),
+                        
+                        bank_nr: getVal(getNodes(platnoscNode, ["RachunekBankowy"])[0], ["NrRB"]),
+                        bank_nazwa: getVal(getNodes(platnoscNode, ["RachunekBankowy"])[0], ["NazwaBanku"]),
+                        termin: getVal(getNodes(platnoscNode, ["TerminPlatnosci"])[0], ["Termin"]),
+                        forma_platnosci: "Przelew",
+                        regon: getVal(getNodes(stopkaNode, ["Rejestry"])[0], ["REGON"]),
+                    };
+
+                    // Podmioty 3
+                    appState.podmioty3 = [];
+                    const p3Nodes = getNodes(root, ["Podmiot3"]);
+                    const rolaMap = {"1": "Wystawca", "2": "Podmiot inny 1", "3": "Odbiorca", "7": "Podmiot inny 2"};
+                    
+                    p3Nodes.forEach(p3 => {
+                        const rolaCode = getVal(p3, ["Rola"]);
+                        appState.podmioty3.push({
+                            nazwa: getVal(getNodes(p3, ["DaneIdentyfikacyjne"])[0], ["Nazwa"]),
+                            nip: getVal(getNodes(p3, ["DaneIdentyfikacyjne"])[0], ["NIP"]) || getVal(p3, ["NrEORI"]) || "-",
+                            rola: rolaMap[rolaCode] || `Podmiot inny ${rolaCode}`,
+                            adres: getVal(getNodes(p3, ["Adres"])[0], ["AdresL1"])
+                        });
+                    });
+
+                    // Pozycje faktury
+                    appState.invoiceItems = [];
+                    const wiersze = getNodes(root, ["FaWiersz"]);
+                    wiersze.forEach(w => {
+                        appState.invoiceItems.push({
+                            lp: getVal(w, ["NrWierszaFa"]),
+                            nazwa: getVal(w, ["P_7"]),
+                            cena_jedn: getVal(w, ["P_9B"]) || getVal(w, ["P_9A"]),
+                            ilosc: getVal(w, ["P_8B"]),
+                            miara: getVal(w, ["P_8A"]),
+                            stawka: getVal(w, ["P_12"]),
+                            netto: getVal(w, ["P_11A"]),
+                            indeks: getVal(w, ["Indeks"]) || "-"
+                        });
+                    });
+
+                    // Podsumowanie VAT
+                    appState.vatSummary = [];
+                    for (let i = 1; i <= 9; i++) {
+                        const vNetto = getVal(faNode, [`P_13_${i}`]);
+                        const vVat = getVal(faNode, [`P_14_${i}`]);
+                        
+                        if (vNetto) {
+                            const stawkaOpis = (i === 1) ? "23% lub 22%" : (i === 2 ? "8% lub 7%" : `${i}%`);
+                            const brutto = (parseFloat(vNetto) + parseFloat(vVat || 0)).toFixed(2);
+                            appState.vatSummary.push({
+                                lp: appState.vatSummary.length + 1,
+                                stawka: stawkaOpis,
+                                netto: vNetto,
+                                vat: vVat || "0.00",
+                                brutto: brutto
+                            });
+                        }
+                    }
+
+                    // Aktualizacja UI
+                    statusLabel.textContent = "Gotowy";
+                    statusLabel.className = "text-emerald-400 font-medium text-right";
+                    invNumberLabel.textContent = appState.invoiceData.numer;
+                    btnExport.disabled = false;
+                    
+                    renderPreview();
+                    showToast("Faktura wczytana poprawnie!");
+
+                } catch (error) {
+                    console.error(error);
+                    statusLabel.textContent = "Błąd XML";
+                    statusLabel.className = "text-rose-500 font-medium text-right";
+                    invNumberLabel.textContent = "-";
+                    btnExport.disabled = true;
+                    showToast(error.message, "error");
+                }
+                
+                // Reset input
+                fileInput.value = '';
+            };
+            
+            reader.readAsText(file, "UTF-8");
+        });
+
+        // Renderowanie podglądu HTML
+        function renderPreview() {
+            welcomeScreen.classList.add('hidden');
+            previewContainer.classList.remove('hidden');
+
+            const d = appState.invoiceData;
+
+            const rowsHtml = appState.invoiceItems.map(it => 
+                `<tr><td>${it.lp}</td><td>${it.nazwa}</td><td class='r'>${it.cena_jedn}</td><td>${it.ilosc}</td><td>${it.miara}</td><td class='c'>${it.stawka}</td><td class='r'>${it.netto}</td><td>${it.indeks}</td></tr>`
+            ).join("");
+
+            const vatRowsHtml = appState.vatSummary.map(v => 
+                `<tr><td>${v.lp}</td><td>${v.stawka}</td><td class='r'>${v.netto}</td><td class='r'>${v.vat}</td><td class='r'>${v.brutto}</td></tr>`
+            ).join("");
+
+            let pInnyHtml = "";
+            appState.podmioty3.forEach(p => {
+                pInnyHtml += `
+                <div class="section-header">${p.rola}</div>
+                <div class="grid-2">
+                    <div>NIP: ${p.nip}<br>Nazwa: ${p.nazwa}<br>Rola: ${p.rola}</div>
+                    <div>Adres<br>${p.adres}</div>
+                </div><hr>`;
+            });
+
+            const htmlStr = `
+                <div class="page text-black">
+                    <div class="header-top">
+                        <div class="ksef-logo">Krajowy System <span>e</span>-Faktur</div>
+                        <div class="top-info">
+                            <div style="font-size: 10px;">Numer Faktury:</div>
+                            <div class="inv-number">${d.numer}</div>
+                            <div style="font-size: 11px; margin-bottom: 5px;">Faktura podstawowa</div>
+                            <div class="ksef-id">Numer KSEF: ${appState.filenameKsefId}</div>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="grid-2">
+                        <div>
+                            <div class="section-header">Sprzedawca</div>
+                            Prefix VAT: ${d.s_prefix}<br>
+                            NIP: ${d.s_nip}<br>
+                            Nazwa: ${d.s_nazwa}<br><br>
+                            <strong>Adres</strong><br>${d.s_adres}<br>Polska<br><br>
+                            Dane kontaktowe<br>
+                            E-mail: ${d.s_email}<br>
+                            Tel.: ${d.s_tel}
+                        </div>
+                        <div>
+                            <div class="section-header">Nabywca</div>
+                            NIP: ${d.n_nip}<br>
+                            Nazwa: ${d.n_nazwa}<br><br>
+                            <strong>Adres</strong><br>${d.n_adres}<br>Polska
+                        </div>
+                    </div>
+                    <hr>
+                    ${pInnyHtml}
+                    <div class="section-header">Szczegóły</div>
+                    <div class="grid-2">
+                        <div>Data wystawienia: ${d.data_wyst}</div>
+                        <div>Data dokonania dostawy: ${d.data_sprz || d.okres_do || '-'}</div>
+                    </div>
+                    <hr>
+                    <div class="section-header">Pozycje</div>
+                    <div style="margin-bottom: 5px; font-style: italic;">Faktura wystawiona w cenach netto w walucie ${d.waluta}</div>
+                    <table>
+                        <thead><tr><th>Lp.</th><th>Nazwa towaru/usługi</th><th>Cena jedn. netto</th><th>Ilość</th><th>Miara</th><th>Stawka podatku</th><th>Wartość netto</th><th>Indeks</th></tr></thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                    <div class="total-box">Kwota należności ogółem: ${d.brutto} ${d.waluta}</div>
+                    
+                    <div class="section-header">Podsumowanie stawek podatku</div>
+                    <table>
+                        <thead><tr><th>Lp.</th><th>Stawka podatku</th><th>Kwota netto</th><th>Kwota podatku</th><th>Kwota brutto</th></tr></thead>
+                        <tbody>${vatRowsHtml}</tbody>
+                    </table>
+                    
+                    <div class="section-header">Płatność</div>
+                    Informacja o płatności: Brak zapłaty<br>
+                    Forma płatności: ${d.forma_platnosci}
+                    <div style="margin-top: 10px; width: 300px;">
+                        <table><thead><tr><th>Termin płatności</th></tr></thead><tbody><tr><td>${d.termin || '-'}</td></tr></tbody></table>
+                    </div>
+                    
+                    <div class="section-header">Numer rachunku bankowego</div>
+                    <table style="width: 100%; max-width: 500px;">
+                        <tr><td style="width: 150px; background: #f9f9f9;">Pełny numer rachunku</td><td>${d.bank_nr || '-'}</td></tr>
+                        <tr><td style="background: #f9f9f9;">Nazwa banku</td><td>${d.bank_nazwa || '-'}</td></tr>
+                    </table>
+                    
+                    <div class="section-header">Rejestry</div>
+                    <table style="width: 100%; max-width: 500px;">
+                        <tr><td style="width: 150px; background: #f9f9f9;">REGON</td><td>${d.regon || '-'}</td></tr>
+                    </table>
+                </div>
+            `;
+            
+            previewContainer.innerHTML = htmlStr;
+        }
+
+           // Generowanie Word (DOCX)
+        btnExport.addEventListener('click', async () => {
+            if (typeof docx === 'undefined') {
+                showToast("Biblioteka generatora Word nie została załadowana. Sprawdź połączenie z internetem lub czy zapora sieciowa nie blokuje jsdelivr.net.", "error");
+                return;
+            }
+
+            try {
+                // Rozszerzony import obiektów z docx
+                const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle, VerticalAlign, AlignmentType } = docx;
+                const d = appState.invoiceData;
+
+                // --- STYLIZACJE ---
+                // Styl obramowania dla wszystkich tabel
+                const tableBorders = {
+                    top: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
+                    bottom: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
+                    left: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
+                    right: { style: BorderStyle.SINGLE, size: 4, color: "CBD5E1" },
+                    insideHorizontal: { style: BorderStyle.SINGLE, size: 4, color: "E2E8F0" },
+                    insideVertical: { style: BorderStyle.SINGLE, size: 4, color: "E2E8F0" },
+                };
+
+                // Pomocnik do eleganckich nagłówków sekcji (np. CZ I. PRACOWNIK...)
+                const createSectionHeader = (text) => new TableRow({
+                    children: [
+                        new TableCell({
+                            columnSpan: 4, // Zawsze obejmuje całość (maks 4 kolumny w dokumencie)
+                            children: [
+                                new Paragraph({ 
+                                    children: [new TextRun({ text: text, color: "FFFFFF", bold: true, size: 22 })], // 11pt
+                                    alignment: AlignmentType.LEFT
+                                })
+                            ],
+                            shading: { fill: "1E3A8A", type: ShadingType.CLEAR }, // Głęboki granat
+                            margins: { top: 120, bottom: 120, left: 150, right: 150 },
+                            verticalAlign: VerticalAlign.CENTER
+                        })
+                    ]
+                });
+
+                // Pomocnik do tworzenia komórek z danymi (Szara etykieta + Czarna wartość)
+                const createFormCell = (label, value, colSpan = 1) => {
+                    const valueLines = (value || " ").split('\n');
+                    const valueParagraphs = valueLines.map((line, index) => {
+                        return new Paragraph({
+                            children: [new TextRun({ text: line, size: 20, color: "0F172A" })], // 10pt
+                            spacing: index === 0 ? { before: 40 } : {}
+                        });
+                    });
+
+                    return new TableCell({
+                        columnSpan: colSpan,
+                        margins: { top: 100, bottom: 100, left: 150, right: 150 },
+                        verticalAlign: VerticalAlign.CENTER,
+                        children: [
+                            new Paragraph({
+                                children: [new TextRun({ text: label.toUpperCase(), size: 16, color: "64748B", bold: true })] // 8pt
+                            }),
+                            ...valueParagraphs
+                        ]
+                    });
+                };
+
+                const vatInfo = appState.vatSummary.map(v => `${v.stawka}: ${v.brutto} PLN`).join("  |  ");
+
+                // --- TWORZENIE DOKUMENTU ---
+                const doc = new Document({
+                    styles: {
+                        default: {
+                            document: { run: { font: "Arial" } } // Zmiana na nowoczesny, czytelny font
+                        }
+                    },
+                    sections: [{
+                        properties: {
+                            page: { margins: { top: 1000, right: 1000, bottom: 1000, left: 1000 } }
+                        },
+                        children: [
+                            // Tytuł dokumentu
+                            new Paragraph({
+                                children: [new TextRun({ text: "OPIS MERYTORYCZNY FAKTURY KSeF", bold: true, size: 32, color: "0F172A" })], // 16pt
+                                alignment: AlignmentType.CENTER,
+                                spacing: { after: 300 }
+                            }),
+
+                            // Tabela: CZ I. PRACOWNIK MERYTORYCZNY
+                            new Table({
+                                width: { size: 100, type: WidthType.PERCENTAGE },
+                                borders: tableBorders,
+                                rows: [
+                                    createSectionHeader("CZ. I. PRACOWNIK MERYTORYCZNY"),
+                                    new TableRow({ children: [createFormCell("Komórka odpowiedzialna", "[.....................................]", 2), createFormCell("Data wpływu faktury", d.data_wyst, 2)] }),
+                                    new TableRow({ children: [createFormCell("Dokument na podstawie", "[ Zapotrzebowanie ]", 2), createFormCell("Nr umowy / wniosku", ".....................................", 2)] }),
+                                    new TableRow({ children: [createFormCell("Numer KSeF", appState.filenameKsefId, 2), createFormCell("Numer faktury", d.numer, 2)] }),
+                                    new TableRow({ children: [createFormCell("Data wystawienia", d.data_wyst, 2), createFormCell("Termin płatności", d.termin || '-', 2)] }),
+                                    new TableRow({ children: [createFormCell("Sprzedawca", d.s_nazwa, 2), createFormCell("NIP Sprzedawcy", d.s_nip, 2)] }),
+                                    new TableRow({ children: [createFormCell("Adres Sprzedawcy", d.s_adres, 4)] }),
+                                    new TableRow({ children: [createFormCell("Rachunek bankowy", d.bank_nr || '-', 2), createFormCell("Kwota brutto", `${d.brutto} ${d.waluta}`, 2)] }),
+                                    new TableRow({ children: [createFormCell("Podsumowanie VAT", vatInfo, 4)] }),
+                                    new TableRow({ children: [createFormCell("Opis wydatku", "\n\n\n\n\n", 4)] }), // Puste linie dla miejsca na wpis
+                                    new TableRow({ children: [createFormCell("Protokół odbioru", "[ Tak / Nie ]", 2), createFormCell("Uwagi do odbioru", ".....................................", 2)] }),
+                                    new TableRow({ children: [createFormCell("Zrealizowano zgodnie z umową", "[ Tak / Nie ]", 2), createFormCell("Uwagi do realizacji", ".....................................", 2)] })
+                                ]
+                            }),
+                            
+                            new Paragraph({ spacing: { after: 400 } }),
+
+                            // Tabela: CZ II. ZAMÓWIENIA PUBLICZNE
+                            new Table({
+                                width: { size: 100, type: WidthType.PERCENTAGE },
+                                borders: tableBorders,
+                                rows: [
+                                    createSectionHeader("CZ. II. ZAMÓWIENIA PUBLICZNE"),
+                                    new TableRow({ 
+                                        children: [
+                                            createFormCell("Wydatek bez stosowania ustawy PZP", "[ ] Tak     [ ] Nie", 2),
+                                            createFormCell("Inne uwagi PZP", "", 2)
+                                        ] 
+                                    })
+                                ]
+                            }),
+
+                            new Paragraph({ spacing: { after: 400 } }),
+
+                            // Tabela: CZ III. KSIĘGOWOŚĆ
+                            new Table({
+                                width: { size: 100, type: WidthType.PERCENTAGE },
+                                borders: tableBorders,
+                                rows: [
+                                    createSectionHeader("CZ. III. KSIĘGOWOŚĆ"),
+                                    new TableRow({ 
+                                        children: [
+                                            createFormCell("Dział", "", 1), 
+                                            createFormCell("Rozdział", "", 1), 
+                                            createFormCell("Paragraf", "", 1), 
+                                            createFormCell("Kwota", d.brutto, 1)
+                                        ] 
+                                    }),
+                                    new TableRow({ 
+                                        children: [
+                                            createFormCell("Dział", "", 1), 
+                                            createFormCell("Rozdział", "", 1), 
+                                            createFormCell("Paragraf", "", 1), 
+                                            createFormCell("Kwota", "", 1)
+                                        ] 
+                                    })
+                                ]
+                            }),
+
+                            new Paragraph({ spacing: { after: 600 } }),
+
+                            // Tabela: CZ IV. ZATWIERDZENIE (Podpisy jako tekst wyśrodkowany z kolumnami)
+                            new Table({
+                                width: { size: 100, type: WidthType.PERCENTAGE },
+                                borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE } },
+                                rows: [
+                                    createSectionHeader("CZ. IV. ZATWIERDZENIE I PODPISY"),
+                                    new TableRow({
+                                        children: [
+                                            new TableCell({
+                                                columnSpan: 2,
+                                                margins: { top: 600 }, // Duży margines na pieczątkę
+                                                children: [
+                                                    new Paragraph({ children: [new TextRun({ text: "..........................................................." })], alignment: AlignmentType.CENTER }),
+                                                    new Paragraph({ children: [new TextRun({ text: "Główny Księgowy / Skarbnik", size: 16, color: "64748B" })], alignment: AlignmentType.CENTER, spacing: { before: 60 } })
+                                                ]
+                                            }),
+                                            new TableCell({
+                                                columnSpan: 2,
+                                                margins: { top: 600 },
+                                                children: [
+                                                    new Paragraph({ children: [new TextRun({ text: "..........................................................." })], alignment: AlignmentType.CENTER }),
+                                                    new Paragraph({ children: [new TextRun({ text: "Dyrektor / Kierownik Jednostki", size: 16, color: "64748B" })], alignment: AlignmentType.CENTER, spacing: { before: 60 } })
+                                                ]
+                                            })
+                                        ]
+                                    })
+                                ]
+                            })
+                        ]
+                    }]
+                });
+
+                const blob = await Packer.toBlob(doc);
+                
+                // Zapisywanie pliku z użyciem natywnego API przeglądarki
+                const url = URL.createObjectURL(blob);
+                const safeName = d.numer.replace(/[\/\\]/g, '_');
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `Opis_${safeName}.docx`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+                
+                showToast("Opis Word wygenerowany pomyślnie.");
+
+            } catch(e) {
+                console.error(e);
+                showToast("Błąd przy generowaniu pliku Word.", "error");
+            }
+        });
+    </script>
+</body>
+</html>
