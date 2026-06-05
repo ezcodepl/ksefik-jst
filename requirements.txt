@@ -1,0 +1,9 @@
+# Ksefik - wymagane biblioteki Python
+
+customtkinter
+lxml
+python-docx
+tkinterweb
+
+# Narzędzie do budowania pliku .exe
+pyinstaller
